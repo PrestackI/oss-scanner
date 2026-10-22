@@ -1,12 +1,12 @@
 # Gridcoin-Research for Anthropic's OSS Scanner: builds the headless node (gridcoinresearchd) and the unit-test binary
-# the way the project's CI does (.github/workflows/cmake_quality.yml, its non-GUI jobs on ubuntu-24.04).
+# the way the project's CI does (.github/workflows/cmake_quality.yml, its Valgrind job on ubuntu-24.04).
 # The scanner builds this with the repository as the build context; network access ends after this build.
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive \
     CC=clang \
     CXX=clang++
 
-# The dependency list of CI's headless jobs, plus python3 for the functional test framework.
+# The Valgrind job's dependency list without valgrind and ccache, plus ca-certificates, git, pkg-config and python3.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates git pkg-config python3 \
       clang cmake build-essential libboost-all-dev \
@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY . /src
 WORKDIR /src
 
-# Headless build with the unit tests, debug info and frame pointers (the GUI is off, as in CI's daemon jobs).
+# Headless build with the unit tests, debug info and frame pointers (GUI off, as in CI's Valgrind job).
 RUN cmake -S /src -B /src/build \
       -DENABLE_GUI=OFF \
       -DENABLE_TESTS=ON \
