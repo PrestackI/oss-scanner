@@ -1,0 +1,47 @@
+name: "Scratch: tools/check gridcoin"
+# Scratch branch on PrestackI's fork only: runs the scanner's own tools/check on projects/gridcoin, then the unit and
+# functional suites inside the finished image with no network and the scanner agent's 2 CPUs / 8 GB. Never PR'd.
+on:
+  push:
+    branches: ["scratch/check-gridcoin"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Make room and install PyYAML
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+          nproc; free -g
+          python3 -c 'import yaml' 2>/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq python3-yaml; }
+      - name: tools/validate.py
+        run: python3 tools/validate.py
+      - name: tools/check --no-shell gridcoin
+        run: |
+          start=$(date +%s)
+          python3 tools/check --no-shell gridcoin < /dev/null
+          echo "tools/check took $(( ($(date +%s) - start) / 60 )) min"
+      - name: Unit suite, offline, 2 CPUs / 8 GB
+        if: always()
+        run: |
+          docker run --rm --init --network none --cpus 2 --memory 8g -w /src oss-scanner-check/built:gridcoin \
+            bash -c 'ls -l build/bin/gridcoinresearchd build/src/test/test_gridcoin && timeout 3000 build/src/test/test_gridcoin --log_level=test_suite 2>&1 | tail -40; echo "unit rc=${PIPESTATUS[0]}"'
+      - name: Functional suite, offline, 2 CPUs / 8 GB
+        if: always()
+        run: |
+          docker run --rm --init --network none --cpus 2 --memory 8g -w /src oss-scanner-check/built:gridcoin \
+            bash -c 'timeout 3000 python3 test/functional/test_runner.py --configfile=/src/build/test/config.ini --jobs=2 --ci --quiet 2>&1 | tail -80; echo "functional rc=${PIPESTATUS[0]}"'
+      - name: Tools the scanner layer added, and the image size
+        if: always()
+        run: |
+          docker run --rm --network none oss-scanner-check/built:gridcoin bash -c 'for t in gdb valgrind clang strace claude python3; do printf "%s: " $t; command -v $t || echo MISSING; done; du -sh /src/build 2>/dev/null'
+          docker images | grep oss-scanner-check
