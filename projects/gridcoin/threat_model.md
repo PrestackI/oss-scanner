@@ -7,13 +7,18 @@ Peercoin descendant, C++17, CMake). `gridcoinresearchd` is a full node and walle
 BOINC volunteer computing through on-chain beacons and superblocks. Untrusted input enters at:
 
 - **The P2P network (most important):** every message from a peer (`src/net.cpp`, `src/net_processing.cpp`,
-  `src/validation.cpp`): version handshake, inventory, blocks, transactions, headers and addresses, and Gridcoin's
-  own messages: `scraperindex` and `part` (scraper manifests, `src/gridcoin/scraper/scraper_net.cpp`, received and
-  parsed by every node, not only scrapers), `psgt` (`src/psgt.cpp`) and `alert`. Peers are anonymous and adversarial;
+  `src/validation.cpp`): version handshake, inventory and getdata, blocks, transactions, getblocks/getheaders
+  requests, addresses and pings; Gridcoin's own messages `scraperindex` and `part` (scraper manifests,
+  `src/gridcoin/scraper/scraper_net.cpp`, received and parsed by every node, not only scrapers) and `psgt`
+  (`src/psgt.cpp`); and the inherited signed `alert` message (`src/alert.cpp`). Gridcoin also accepts `aries`,
+  `encrypt` and `gridaddr` as aliases for `version`, `block` and `addr`. Peers are anonymous and adversarial;
   any parsing that runs before a manifest's signature and authorization checks is reachable by any peer.
 - **Blocks and transactions under consensus rules:** validation of proof-of-stake blocks, coinstake and rewards,
   beacons, superblocks and their scraper convergence, polls and votes, and contract payloads (`src/validation*`,
-  `src/gridcoin/`). Anything a remote peer can get past validation is consensus-critical.
+  `src/gridcoin/`). Anything a remote peer can get past validation is consensus-critical. Rules gated on V15 (the
+  on-chain pool registry, the PSGT pool after decoding, the v15 manifest project cap) are merged but not yet scheduled
+  on any network (`BlockV15Height` is unset in all three chain params). Exercise them on regtest with
+  `-blockv15height=0`, as `p2p_psgt_relay.py` does, and say in the report that the code is not yet active.
 - **The scraper's downloads** (`src/gridcoin/scraper/`): on nodes started with `-scraper` and authorized on chain,
   statistics files from the BOINC project servers on the on-chain whitelist. Their bytes are untrusted, but each
   server is authoritative for its own project's credit, so a server misreporting its own statistics is not a finding.
@@ -42,17 +47,23 @@ BOINC volunteer computing through on-chain beacons and superblocks. Untrusted in
 ## How to exercise it
 
 - Unit tests: `/src/build/src/test/test_gridcoin` (Boost.Test; `--run_test=<suite>` to pick one).
-  `src/test/chain_setup.h` builds a regtest chain inside a unit test.
-- Functional tests: `python3 test/functional/test_runner.py --configfile=/src/build/test/config.ini --jobs=2` drives
-  regtest nodes over RPC and P2P, local only; name one test (`... test_runner.py --configfile=... <name>.py`) to run
-  it alone. `test/functional/test_framework/p2p.py` sends crafted P2P messages; `p2p_psgt_relay.py` is an example.
+  `src/test/chain_setup.h` builds a regtest chain inside a unit test. A new test file must be listed in
+  `src/test/CMakeLists.txt`; rebuild with `cmake --build /src/build --target test_gridcoin`.
+- Functional tests: `python3 test/functional/test_runner.py --configfile=/src/build/test/config.ini` runs the suite
+  (regtest, local only). To run one script alone, new or existing, call it directly:
+  `python3 test/functional/<name>.py --configfile=/src/build/test/config.ini`. test_runner.py ignores any name not in
+  its own script lists: it prints "No valid test scripts specified" and exits 0 without running anything.
+  `test/functional/test_framework/p2p.py` sends crafted P2P messages; `p2p_psgt_relay.py` is an example.
 - Node: `/src/build/bin/gridcoinresearchd -regtest -datadir=<dir>`. Regtest needs no network and can mine
-  blocks on demand (`generatetoaddress`).
+  blocks on demand (`generatetoaddress`). There is no separate CLI: call RPC with the same binary, e.g.
+  `gridcoinresearchd -regtest -datadir=<dir> getnewaddress`.
+- Regtest keeps the wallet in memory and never reads `wallet.dat`; for a wallet-file reproducer use a unit test.
 
 ## How we rate severity
 
-- **Critical:** any consensus divergence between nodes, including across platforms or versions, whether or not an
-  attacker triggers it; a remote peer can get an invalid block or reward accepted, mint or steal coins, or achieve
+- **Critical:** an unintended consensus divergence between nodes enforcing the same rules, including across
+  platforms or compilers, whether or not an attacker triggers it (a rule change at a scheduled activation height is
+  intended, not a divergence); a remote peer can get an invalid block or reward accepted, mint or steal coins, or achieve
   remote code execution; a relayed block or transaction that crashes or stalls every node that processes it; any
   memory corruption reachable from the P2P network or from a block; wallet keys or passphrase disclosed to a remote
   party.
@@ -78,6 +89,13 @@ BOINC volunteer computing through on-chain beacons and superblocks. Untrusted in
 ## Anything to leave alone
 
 - Mainnet-only paths cannot be reached here; reason about them and say so rather than guessing at live behaviour.
+- Regtest is test scaffolding, not a weaker mainnet. Under `-regtest` (`Params().IsMockableChain()`) the node skips
+  coinbase and coinstake maturity, honours the consensus overrides in `CONSENSUS_OVERRIDE_ARGS` (`src/chainparams.h`,
+  gated by `ConsensusOverridesAllowed()`), and offers regtest-only RPCs (`generate`, `generatetoaddress`,
+  `generatesuperblock`, ...); `generatesuperblock` builds a superblock, and can activate beacons, with no scraper
+  convergence. A behaviour that exists only because of one of these is not a finding: confirm that the mainnet branch
+  of the same code shows it too. A relaxation that can be reached off regtest (for example, a gate that checks the
+  wrong condition) is a finding.
 - `assert()`: asserts are compiled into every build of this tree, so a peer-reachable assert failure is a remote crash
   and is rated as one. An assert whose condition no listed input can falsify is not a finding. An assert whose
   argument has side effects the program relies on may be reported as Low.
