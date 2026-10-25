@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates git pkg-config python3 \
       clang cmake build-essential libboost-all-dev \
       libssl-dev libdb++-dev libminiupnpc-dev libqrencode-dev \
-      libcurl4-openssl-dev libzip-dev zipcmp zipmerge ziptool \
+      libcurl4-openssl-dev zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # scanner contract: the checkout lives inside the image, at /src
